@@ -1,0 +1,103 @@
+
+
+#####################################################################
+# 1- create a view table with variables in "long form"
+#####################################################################
+
+CREATE TABLE tally (
+    n int unsigned NOT NULL AUTO_INCREMENT,
+    PRIMARY KEY (n)
+);
+ 
+-- Populate it
+delimiter //
+CREATE PROCEDURE create_tally()
+BEGIN
+    SET @x = 0;
+    WHILE @x<100 DO
+        
+        INSERT INTO tally (n) VALUES (NULL);
+        SET @x = @x + 1;
+    END WHILE;
+END//
+delimiter ;
+CALL create_tally();
+DROP PROCEDURE create_tally;
+
+# EVENTS
+CREATE TABLE uniqueEventView
+AS
+select 
+  id, score, sessionScore, Country,
+  substring_index(
+    substring_index(eventtriggeredsignals, ',', n), 
+    ',', 
+    -1
+  ) as evTrigger
+from internal
+join tally
+  on char_length(eventtriggeredsignals) 
+    - char_length(replace(eventtriggeredsignals, ',', '')) 
+    >= n - 1;
+    
+ALTER TABLE uniqueEventView ADD evTrigBasic VARCHAR(200);      
+    
+# remove special characters 
+Update uniqueEventView set evTrigBasic = replace(evTrigger, char(91), ''); #[
+Update uniqueEventView set evTrigBasic = replace(evTrigBasic, char(93), ''); #]
+Update uniqueEventView set evTrigBasic = replace(evTrigBasic, char(34), ''); #"
+Update uniqueEventView set evTrigBasic = replace(evTrigBasic, char(32), ''); # space
+
+
+# SIGNAL VALUES
+CREATE TABLE uniqueSignalView
+AS
+select 
+  id, score, sessionScore, Country,
+  substring_index(
+    substring_index(signalvalues, ',', n), 
+    ',', 
+    -1
+  ) as signalVal
+from internal
+join tally
+  on char_length(signalvalues) 
+    - char_length(replace(signalvalues, ',', '')) 
+    >= n - 1;
+
+
+#####################################################################
+# 2 - extract output variables
+#####################################################################
+
+# a) total times it triggered; total, averages and sums of "scores" & sessionScores
+
+
+# EVENTS
+CREATE TABLE eventsOutput
+AS
+SELECT evTrigBasic, count(*), sum(Score), avg(Score) FROM uniqueEventView group by evTrigBasic;
+
+ALTER TABLE eventsOutput CHANGE `count(*)` `frequency` INT;
+
+# SIGNALS
+CREATE TABLE signalsOutput
+AS
+SELECT signalVal, count(*), sum(Score), avg(Score), min(Score), sum(sessionScore), avg(sessionScore) FROM uniqueSignalView group by signalVal;
+
+ALTER TABLE signalsOutput CHANGE `count(*)` `frequency` INT;
+
+# b) percentage of triggers
+
+# EVENTS
+CREATE TABLE eventsOutputPercentage AS
+select evTrigBasic, frequency * 100.0 / (select sum(frequency) from eventsOutput)
+from eventsOutput;
+
+# SIGNALS
+CREATE TABLE signalsOutputPercentage AS
+select evTrigBasic, frequency * 100.0 / (select sum(frequency) from signalsOutput)
+from signalsOutput
+
+
+
